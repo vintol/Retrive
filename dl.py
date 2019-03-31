@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # General Downloader
 #
-# v2.1 RC1 16/06/2017
+#
 
 import better_exceptions
 import urllib.request
@@ -12,42 +12,41 @@ import threading
 import os,sys
 #
 def download():
-    global broken_links, internal_error, failed,files
+    global broken_links, internal_error, failed, ls
     while not qq.empty():
         mydata = threading.local()
         mydata.name, mydata.url = qq.get()
-        mydata.keep_going, mydata.skip, mydata.retry = (True, False, 0)
-        if mydata.name in files:continue
-        while mydata.keep_going:
-            try:mydata.html = urllib.request.urlopen(mydata.url,timeout=120)
-            except urllib.error.HTTPError as HERR:
-                if HERR.code == 404 or HERR.code == 500:
-                    broken_links += 1
-                    mydata.keep_going = False
-                    mydata.skip = True
-            except:
-                mydata.retry += 1
-                if mydata.retry > 5:
-                    mydata.keep_going = False
-                    mydata.skip = True
-            break
-        if mydata.skip:continue
-        while True:
-            try:
-                mydata.image = mydata.html.read()
-                open(mydata.name,'wb').write(mydata.image)
-                break
-            except:
-                mydata.retry += 1
-                if mydata.retry > 10:
-                    os.remove(mydata.name)
-                    break
+        if mydata.name in ls:continue
+        try:
+            mydata.html = urllib.request.urlopen(mydata.url)
+        except urllib.error.HTTPError as HERR:
+            if HERR.code == 404:broken_links += 1
+            if HERR.code == 500:internal_error +=1
+            continue
+        except:
+            for tmp in range(2):
+                try:
+                    mydata.html = urllib.request.urlopen(mydata.url)
+                    if mydata.html.getcode() == 200:break
+                except:continue
+            print("\n ERROR : GET ERROR :",mydata.name,mydata.url)
+            failed.append((mydata.name,mydata.url))
+            continue
+        try:mydata.image = mydata.html.read()
+        except:
+            print("\n ERROR : READ ERROR :",mydata.name,mydata.url)
+            failed.append((mydata.name,mydata.url))
+            continue
+        try:open(mydata.name,'wb').write(mydata.image)
+        except:
+            print("\n ERROR : WRITE ERROR :",mydata.name,mydata.url)
+            failed.append((mydata.name,mydata.url))
+            continue
 #        print("INFO : Downloaded",mydata.name)
 
 def mkqueue_album_gen():
     fhand = open(args.fname,'r')
-    links  = []
-    queued = []
+    links = []
     i , j = (args.FROM,1)
     for each in fhand:
         if each.startswith(args.identify):
@@ -65,44 +64,28 @@ def mkqueue_album_gen():
 
 def mkqueue_no_album():
     fhand = open(args.fname,'r')
-    queued_urls   = []
-    queued_names  = []
-    i = 0
+    i = 1
     for each in fhand:
         if each.startswith('#') or len(each) < 10:continue
-        if args.ORIGINAL_NAME:fname = each.strip().split('/')[-1]
-        else:
+        if not args.ORIGINAL_NAME:
+            qq.put((args.prefix+str(i).zfill(5) + "." + each.strip().split('.')[-1], each.strip()))
+            #qq.put((args.prefix+str(1000 + i) + "." + each.strip().split('.')[-1], each.strip()))
             i = i + 1
-            fname = args.prefix+str(i).zfill(5) + "." + each.strip().split('.')[-1]
-        if each.strip() in queued_urls:continue
-        queued_urls.append(each.strip())
-        if args.ORIGINAL_NAME:
-            if fname in queued_names:
-                x = 1
-                while True:
-                    new_name = '.'.join(fname.split('.')[:-1])+"_{}".format(x)+fname.split('.')[-1]
-                    if new_name not in queued_names:
-                        fname = new_name
-                        break
-            queued_names.append(fname)
-        qq.put((fname,each.strip()))
+        else:qq.put(each.strip().split('')[-1], each.strip())
     fhand.close()
 
 def mkqueue_get_album():
     ref = dict()
-    queued = []
     fhand = open(args.fname,'r')
     for each in fhand:
         if each.startswith(args.identify):
-            i = each.split('album=')[-1].strip()#.zfill(4)
-            if i not in ref.keys():ref[i] = 1
+            i = each.split('album=')[-1].strip().zfill(4)
+            if i not in ref.keys():ref[i] = 1001
         if each.startswith('#') or len(each) < 10:continue
         if args.ORIGINAL_NAME:
             fname = i+ "_" + each.strip().split('/')[-1]
         else:
-            fname = i+ "_" + str(ref[i]).zfill(4) + "." + each.strip().split('.')[-1]
-        if each.strip() in queued:continue
-        queued.append(each.strip())
+            fname = i+ "_" + str(ref[i]) + "." + each.strip().split('.')[-1]
         qq.put((fname,each.strip()))
         ref[i] = ref[i] + 1
     fhand.close()
@@ -152,25 +135,23 @@ args = parser.parse_args()
 qq = queue.Queue()
 started = time.time()
 threads = []
+links   = []
 failed  = []
 broken_links    = 00
 internal_error  = 00
+ls = os.listdir(os.getcwd())
 
 if args.GENERATE_ALBUM_NO:mkqueue_album_gen()
 elif args.SINGLE_ALBUM:mkqueue_no_album()
 else:mkqueue_get_album()
 files = os.listdir(os.getcwd())
-tmp = os.scandir(os.getcwd())
-for each in tmp:
-    if each.is_dir():files = files + os.listdir(each)
 total = qq.qsize()
 print(str(total),"Files queued for download.")
 
-"""
-while not qq.empty():
-    name, url = qq.get()
-    print(name,url)
-quit()  #DEBUG """
+#while not qq.empty():
+#    name, url = qq.get()
+#    print(name,url)
+#quit()
 if args.directory is not None:
     if not os.path.exists(args.directory):os.makedirs(args.directory)
     os.chdir(args.directory)
