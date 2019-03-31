@@ -17,7 +17,7 @@ def download():
         mydata.name, mydata.url = qq.get()
         if mydata.name in files:continue
         try:
-            mydata.html = urllib.request.urlopen(mydata.url,timeout=25)
+            mydata.html = urllib.request.urlopen(urllib.request.Request(mydata.url,headers={'User-Agent' : "Mozilla/5.0 (X11; U; Linux i686) Gecko/20071127 Firefox/2.0.0.11"}))
         except urllib.error.HTTPError as HERR:
             if HERR.code == 404:broken_links += 1
             if HERR.code == 500:internal_error +=1
@@ -25,7 +25,7 @@ def download():
         except:
             for tmp in range(2):
                 try:
-                    mydata.html = urllib.request.urlopen(mydata.url)
+                    mydata.html = urllib.request.urlopen(urllib.request.Request(mydata.url,headers={'User-Agent' : "Mozilla/5.0 (X11; U; Linux i686) Gecko/20071127 Firefox/2.0.0.11"}))
                     if mydata.html.getcode() == 200:break
                 except:continue
             print("\n ERROR : GET ERROR :",mydata.name,mydata.url)
@@ -51,6 +51,20 @@ def mkqueue():
         if each.startswith(args.identify):
             i = i + 1
             j = 101
+        if each.startswith('#') or len(each) < 10:continue
+        fname = str(i)+ "_" + str(j) + "." + each.strip().split('.')[-1]
+        links.append((fname,each.strip()))
+        j = j + 1
+    for each in links:qq.put(each)
+    fhand.close()
+
+def mkqueue_2():
+    fhand = open(args.fname,'r')
+    links = []
+    for each in fhand:
+        if each.startswith(args.identify):
+            i = each.split('album=')
+            ref[i] = 1001
         if each.startswith('#') or len(each) < 10:continue
         fname = str(i)+ "_" + str(j) + "." + each.strip().split('.')[-1]
         links.append((fname,each.strip()))
