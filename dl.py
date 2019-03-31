@@ -1,8 +1,9 @@
 #!/usr/bin/python3
 # General Downloader
 #
-#
+# v2.1 RC1 16/06/2017
 
+import better_exceptions
 import urllib.request
 import argparse
 import time
@@ -11,65 +12,99 @@ import threading
 import os,sys
 #
 def download():
-    global broken_links, internal_error, failed
+    global broken_links, internal_error, failed,files
     while not qq.empty():
         mydata = threading.local()
         mydata.name, mydata.url = qq.get()
+        mydata.keep_going, mydata.skip, mydata.retry = (True, False, 0)
         if mydata.name in files:continue
-        try:
-            mydata.html = urllib.request.urlopen(urllib.request.Request(mydata.url,headers={'User-Agent' : "Mozilla/5.0 (X11; U; Linux i686) Gecko/20071127 Firefox/2.0.0.11"}))
-        except urllib.error.HTTPError as HERR:
-            if HERR.code == 404:broken_links += 1
-            if HERR.code == 500:internal_error +=1
-            continue
-        except:
-            for tmp in range(2):
-                try:
-                    mydata.html = urllib.request.urlopen(urllib.request.Request(mydata.url,headers={'User-Agent' : "Mozilla/5.0 (X11; U; Linux i686) Gecko/20071127 Firefox/2.0.0.11"}))
-                    if mydata.html.getcode() == 200:break
-                except:continue
-            print("\n ERROR : GET ERROR :",mydata.name,mydata.url)
-            failed.append((mydata.name,mydata.url))
-            continue
-        try:mydata.image = mydata.html.read()
-        except:
-            print("\n ERROR : READ ERROR :",mydata.name,mydata.url)
-            failed.append((mydata.name,mydata.url))
-            continue
-        try:open(mydata.name,'wb').write(mydata.image)
-        except:
-            print("\n ERROR : WRITE ERROR :",mydata.name,mydata.url)
-            failed.append((mydata.name,mydata.url))
-            continue
+        while mydata.keep_going:
+            try:mydata.html = urllib.request.urlopen(mydata.url,timeout=120)
+            except urllib.error.HTTPError as HERR:
+                if HERR.code == 404 or HERR.code == 500:
+                    broken_links += 1
+                    mydata.keep_going = False
+                    mydata.skip = True
+            except:
+                mydata.retry += 1
+                if mydata.retry > 5:
+                    mydata.keep_going = False
+                    mydata.skip = True
+            break
+        if mydata.skip:continue
+        while True:
+            try:
+                mydata.image = mydata.html.read()
+                open(mydata.name,'wb').write(mydata.image)
+                break
+            except:
+                mydata.retry += 1
+                if mydata.retry > 10:
+                    os.remove(mydata.name)
+                    break
 #        print("INFO : Downloaded",mydata.name)
 
-def mkqueue():
+def mkqueue_album_gen():
     fhand = open(args.fname,'r')
-    links = []
-    i , j = (args.last,101)
+    links  = []
+    queued = []
+    i , j = (args.FROM,1)
     for each in fhand:
         if each.startswith(args.identify):
             i = i + 1
-            j = 101
+            j = 1
         if each.startswith('#') or len(each) < 10:continue
-        fname = str(i)+ "_" + str(j) + "." + each.strip().split('.')[-1]
+        if not args.ORIGINAL_NAME:
+            fname = "R"+str(i)+ "_" + str(j).zfill(4) + "." + each.strip().split('.')[-1]
+        else:
+            fname = "R"+str(i)+ "_" + each.strip().split('/')[-1]
         links.append((fname,each.strip()))
         j = j + 1
     for each in links:qq.put(each)
     fhand.close()
 
-def mkqueue_2():
+def mkqueue_no_album():
     fhand = open(args.fname,'r')
-    links = []
+    queued_urls   = []
+    queued_names  = []
+    i = 0
+    for each in fhand:
+        if each.startswith('#') or len(each) < 10:continue
+        if args.ORIGINAL_NAME:fname = each.strip().split('/')[-1]
+        else:
+            i = i + 1
+            fname = args.prefix+str(i).zfill(5) + "." + each.strip().split('.')[-1]
+        if each.strip() in queued_urls:continue
+        queued_urls.append(each.strip())
+        if args.ORIGINAL_NAME:
+            if fname in queued_names:
+                x = 1
+                while True:
+                    new_name = '.'.join(fname.split('.')[:-1])+"_{}".format(x)+fname.split('.')[-1]
+                    if new_name not in queued_names:
+                        fname = new_name
+                        break
+            queued_names.append(fname)
+        qq.put((fname,each.strip()))
+    fhand.close()
+
+def mkqueue_get_album():
+    ref = dict()
+    queued = []
+    fhand = open(args.fname,'r')
     for each in fhand:
         if each.startswith(args.identify):
-            i = each.split('album=')
-            ref[i] = 1001
+            i = each.split('album=')[-1].strip()#.zfill(4)
+            if i not in ref.keys():ref[i] = 1
         if each.startswith('#') or len(each) < 10:continue
-        fname = str(i)+ "_" + str(j) + "." + each.strip().split('.')[-1]
-        links.append((fname,each.strip()))
-        j = j + 1
-    for each in links:qq.put(each)
+        if args.ORIGINAL_NAME:
+            fname = i+ "_" + each.strip().split('/')[-1]
+        else:
+            fname = i+ "_" + str(ref[i]).zfill(4) + "." + each.strip().split('.')[-1]
+        if each.strip() in queued:continue
+        queued.append(each.strip())
+        qq.put((fname,each.strip()))
+        ref[i] = ref[i] + 1
     fhand.close()
 
 def enqueue():
@@ -101,30 +136,41 @@ parser.add_argument('--threads', dest='threads', type = int, default = 4, requir
                     help='No. of threads to use.')
 parser.add_argument('--identify', dest='identify', type = str, default = "#!!!", required = False,
                     help='Identifier that seperate group of links belonging to different albums.')
-parser.add_argument('--last', dest='last', type = int, default = 1000, required = False,
-                    help='No. of last album.')
-parser.add_argument('-f', dest='failed', action='store_true', required = False,
-                    help='If restarting failed download.')
+parser.add_argument('-o', dest='ORIGINAL_NAME', action='store_true', required = False,
+                    help='Use the original file names')
+parser.add_argument('-s', dest='SINGLE_ALBUM', action='store_true', required = False,
+                    help='Invoke Single Album Mode')
+parser.add_argument('--preix', dest='prefix', type = str, default = "R", required = False,
+                    help='Prefix to file names  [Used with single album mode]')
+parser.add_argument('-g', dest='GENERATE_ALBUM_NO', action='store_true', required = False,
+                    help='Invoke Auto-Generation of Album No')
+parser.add_argument('--from', dest='FROM', type = int, default = 100, required = False,
+                    help='Start Album no from here [Used with auto generation of album no]')
 args = parser.parse_args()
 
 #
 qq = queue.Queue()
 started = time.time()
 threads = []
-links   = []
 failed  = []
 broken_links    = 00
 internal_error  = 00
 
-if args.failed:
-    for each in open(args.fname,'r'):
-        if not each.startswith('#') and len(each.strip().split('=')) == 2:
-            qq.put((each.strip().split('=')[0],each.strip().split('=')[1]))
-else:mkqueue()
+if args.GENERATE_ALBUM_NO:mkqueue_album_gen()
+elif args.SINGLE_ALBUM:mkqueue_no_album()
+else:mkqueue_get_album()
 files = os.listdir(os.getcwd())
+tmp = os.scandir(os.getcwd())
+for each in tmp:
+    if each.is_dir():files = files + os.listdir(each)
 total = qq.qsize()
 print(str(total),"Files queued for download.")
 
+"""
+while not qq.empty():
+    name, url = qq.get()
+    print(name,url)
+quit()  #DEBUG """
 if args.directory is not None:
     if not os.path.exists(args.directory):os.makedirs(args.directory)
     os.chdir(args.directory)
@@ -143,15 +189,9 @@ if len(failed) > 0:
     for t in threads:t.join()
     print("\n INFO:",len(failed),"Downloads Failed.")
 
-if len(failed) > 0:
-    print("\n INFO : Download failed for {} Items. Writing to file ...".format(len(failed)))
-    fhand = open("Failed",'w')
-    for name,url in failed:
-        fhand.write(name+"="+url+"\n")
-    fhand.close()
 
 print(" \n ============================ \n    Time Taken : {} \n Files Downloaded : {} \n    Failed Downloads\
     : {} \n    Broken Links : {}  \n ===============================================================".format(\
     time.strftime("%H:%M:%S",time.gmtime(time.time()-started)), total-len(failed),len(failed),broken_links))
-
+print(args.SINGLE_ALBUM)
 #
