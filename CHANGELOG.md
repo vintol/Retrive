@@ -13,11 +13,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### Fixed
 ### Security
 ---------
-##[3.0.0] - 2018-12-06
+## [3.0.0] - 2018-12-06
 
 SEE [Features]()
 ----------
-##[2.0.0] - 2017-06-16
+## [2.0.0] - 2017-06-16
 
 >Not Released to Public
 ---------
