@@ -13,3 +13,4 @@ The main purpose of retrieve is to efficiently download links scraped by [fanboy
 
 
 The original intention was to download the files scraped by my other project `fanboy`, while retaining the album grouping.
+But later on, this became a project on its own and I started adding relevent features.
